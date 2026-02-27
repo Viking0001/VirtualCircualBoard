@@ -43,11 +43,11 @@ INSTRUCTION_MAP = {
     "PTR=A":        27,
     "PTR=B":        28,
     "PTR=C":        29,
-    "GOTO1_IFA=0":   30,
+    "GOTO1_IFA==0":   30,
     "A=0":          31,
-    "GOTO1_IFB=0":   32,
+    "GOTO1_IFB==0":   32,
     "B=0":          33,
-    "GOTO1_IFC=0":   34,
+    "GOTO1_IFC==0":   34,
     "C=0":          35,
     "GOTO1_IFA<B":   36,
     "GOTO1_IFB>A":   36,
@@ -72,11 +72,11 @@ INSTRUCTION_MAP = {
     "RETURN":       50,
     "DRAW":         51,
     "DRAW_A":       52,
-    "GOTO2_IFA=0":   53,
+    "GOTO2_IFA==0":   53,
     "DRAW_B":       54,
-    "GOTO2_IFB=0":   55,
+    "GOTO2_IFB==0":   55,
     "DRAW_C":       56,
-    "GOTO2_IFC=0":   57,
+    "GOTO2_IFC==0":   57,
     "A=INPUT":      58,
     "GOTO2_IFA<B":   59,
     "GOTO2_IFB>A":   59,
@@ -203,6 +203,7 @@ def assemble_tokens(tokens):
         if token in INSTRUCTION_MAP:
             instr = token
             opcode = INSTRUCTION_MAP[instr]
+            print(f"{i}: {instr} ({opcode})", end="")
             i += 1
             
             # 8-bit opcode řádek
@@ -225,10 +226,10 @@ def assemble_tokens(tokens):
                     except ValueError:
                         print(f"Warning: Neplatný operand pro {instr}. Používám 0.")
                 
-                print(f"{i}: {instr} ({opcode}) + operand={operand}")
+                print(f" + operand={operand}")
                 binary_rows.append(format(operand & 0xFF, "08b"))
             else:
-                print(f"{i}: {instr} ({opcode}) (no operand)")
+                print()
         else:
             i += 1
             

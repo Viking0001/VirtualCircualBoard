@@ -16,11 +16,14 @@ class Variable:
 
 
 class If_call_back:
-    x_length = 3
+    x_length = 255
     list_if_commands = [] 
-    def __init__(self, commands: list[Command]) -> None:
-        self.command = Command(None)
-        commands.append(self.command)
+    def __init__(self, commands: list[Command], command: Command | None = None) -> None:
+        if command is None:
+            self.command = Command(None)
+            commands.append(self.command)
+        else:
+            self.command = command
         self.list_if_commands.append(self)
         self.first = True
         self.position = None
@@ -30,6 +33,7 @@ class If_call_back:
             self.position = position
         if position is None:
             position = self.position
+        
         position += add
         y = position // self.x_length
         x = position % self.x_length
@@ -42,13 +46,12 @@ class If_call_back:
                 command = commands[index-1].text.replace("1", "2")
                 commands.insert(index-1,Command(str(y)))
                 commands.insert(index-1,Command(command))
-            self.command.text = str(x)
+            self.command.text = str(x+2)
             
             index = self.list_if_commands.index(self) + 1
             while (index < len(self.list_if_commands)):
                 self.list_if_commands[index].set(commands, None, 2)
                 index += 1
-                
 
 
 class Ram:
@@ -78,10 +81,13 @@ class Ram:
         else:
             position = variable
 
-        if self.last_position != position:
+        if self.last_position == None or self.last_position != position:
             commands.append(Command("PTR="))
             commands.append(Command(str(position)))
             self.last_position = position
+
+    def reset_last_position(self):
+        self.last_position = None
 
 class Register:
     def __init__(self, variable: Variable | None, name:str,RAM_position_verified : int ,last_used : int = 0):
@@ -132,7 +138,7 @@ class Registers:
                 r.last_used = 0
                 return r
 
-        free_register = self.get_emty_register(without_register)
+        free_register = self.get_empty_register(without_register)
 
         self.ram.set_RAM_position(commands, var)
         commands.append(Command(f"{free_register.name}=RAM"))
@@ -143,7 +149,7 @@ class Registers:
         return free_register
 
     def input_register(self,commands: list[Command], without_register: list[Register] = None):
-        free_register = self.get_emty_register(without_register)
+        free_register = self.get_empty_register(without_register)
         commands.append(Command(free_register.name + "=INPUT"))
         self.free_register(free_register)
         return free_register
@@ -164,14 +170,14 @@ class Registers:
         if free_register is not None:
             return free_register    
         
-        free_register = self.get_emty_register(without_register)
+        free_register = self.get_empty_register(without_register)
         commands.append(Command(free_register.name + "="))
         commands.append(Command(inte))
         free_register.setNumber(inte)
         free_register.variable = None
         return free_register
 
-    def get_emty_register(self, without_register: list[Register] = None) -> Register:
+    def get_empty_register(self, without_register: list[Register] = None) -> Register:
         if without_register is None:
             without_register = []
         for r in self.registers:
@@ -190,6 +196,10 @@ class Registers:
             if r.variable == var:
                 r.variable = None
 
+    def free_all_registers(self):
+        for r in self.registers:
+            r.variable = None
+            r.setNumber(None)
     
     def get_data_to_register(self,commands: list[Command], letters: dict[str, str],  line: str, without_register: list[Register] = None):
         if without_register is None:
@@ -240,7 +250,7 @@ class Registers:
 
                 # We still need to protect the current math operands from each other
                 right_register = self.get_data_to_register(commands, letters, tokens[i+1], [last_register])
-                empty_register = self.get_emty_register([last_register, right_register])
+                empty_register = self.get_empty_register([last_register, right_register])
 
                 commands.append(Command(f"{empty_register.name}={last_register.name}{token}{right_register.name}"))
                 empty_register.setNumber(None)
@@ -292,19 +302,88 @@ class Processor:
         self.letters: dict[str, str] = letters
         self.commands: list[Command] = []
         self.if_stack: list[If_call_back] = []
+        self.while_stack: list[Command] = []
 
 
     def process_command(self, line: str):
+
+        line = line.replace(" ", "")
+        operators = ["==", "!=", ">=", "<=", ">", "<"]
+        negated = {
+            "==": "!=0",
+            "!=": "==0",
+            ">":  "<=",
+            "<":  ">=",
+            ">=": "<",
+            "<=": ">"
+        }
+
         line = line.strip()
         if not line:
             return
 
-        if (line.startswith("if")):
-            line = line[2:].strip()
-            self.GOTO(self.if_stack , line)
+        if (line.startswith("if(") and line.endswith(")")):
+            line = line[3:-1].strip()
+
+            for op in operators:
+                if op in line:
+                    left, right = map(str.strip, line.split(op))
+                    break
+            else:
+                raise ValueError("Neznámý operátor")
+
+            left_register = self.registers.get_data_to_register(self.commands, self.letters, left)
+            right_register = self.registers.get_data_to_register(self.commands, self.letters, right, [left_register])
+
+            if op in ["==", "!="]:
+                empty = self.registers.get_empty_register([left_register, right_register])
+                self.commands.append(Command(f"{empty.name}={left_register.name}-{right_register.name}"))
+
+                condition = negated[op]
+                self.goto_if(f"{empty.name}{condition}")
+
+            else:
+                self.goto_if(f"{left_register.name}{negated[op]}{right_register.name}")
+
+        elif (line == "else"):
+            self.goto_else()
 
         elif (line == "endif"):
-            self.if_stack.pop().set(self.commands, len(self.commands))
+            self.goto_if_end()
+
+        elif (line.startswith("while(") and line.endswith(")")):
+            line = line[6:-1].strip()
+            len_commands = len(self.commands)
+            
+            for op in operators:
+                if op in line:
+                    left, right = map(str.strip, line.split(op))
+                    break
+            else:
+                raise ValueError("Neznámý operátor")
+
+            self.registers.free_all_registers()
+            self.ram.reset_last_position()
+
+            left_register = self.registers.get_data_to_register(self.commands, self.letters, left)
+            right_register = self.registers.get_data_to_register(self.commands, self.letters, right, [left_register])
+
+            if op in ["==", "!="]:
+                empty = self.registers.get_empty_register([left_register, right_register])
+                self.commands.append(Command(f"{empty.name}={left_register.name}-{right_register.name}"))
+
+                condition = negated[op]
+                self.goto_while(f"{empty.name}{condition}", self.commands[len_commands])
+
+            else:
+                self.goto_while(f"{left_register.name}{negated[op]}{right_register.name}", self.commands[len_commands])
+
+
+        elif (line == "endwhile"):
+            self.goto_while_end()
+            
+
+
 
         elif line.startswith("var") or "=" in line:
 
@@ -312,6 +391,7 @@ class Processor:
 
             if is_declaration:
                 line = line[3:].strip()
+
 
             name, value = map(str.strip, line.split("="))
 
@@ -340,8 +420,8 @@ class Processor:
 
 
 
-        elif line.startswith("print"):
-            line = line[5:].strip()
+        elif line.startswith("print(") and line.endswith(")"):
+            line = line[6:-1].strip()
 
             data, is_same_raw = self.get_data(line)
             if (data is not None):
@@ -360,22 +440,42 @@ class Processor:
             register = self.registers.input_register(self.commands)
 
         else:
-            print("error 9932")
             exit(f"Chyba: Příkaz '{line}' není podporován.")
 
         for r in self.registers.registers:
             r.last_used += 1
                 
         
-    def GOTO(self, if_stack: list[If_call_back], line: str):
-        if ("==" in line):  #jde prepsat na lepsi variantu s self.registers.get_data_to_register(self.commands, self.letters, left + "-" + right)
-            left, right = map(str.strip, line.split("=="))
-            left_register = self.registers.get_data_to_register(self.commands, self.letters, left)
-            right_register = self.registers.get_data_to_register(self.commands, self.letters, right,[left_register])
-            empty_register = self.registers.get_emty_register([left_register, right_register])
-            self.commands.append(Command(f"{empty_register.name}={left_register.name}-{right_register.name}"))
-            self.commands.append(Command(f"GOTO1_IF{empty_register.name}!=0"))
-            if_stack.append(If_call_back(self.commands))
+    def goto_if(self,subcondition: str):
+        if (any(op in subcondition for op in {"==", "!=", "<", ">", "<=", ">="})): 
+            self.commands.append(Command(f"GOTO1_IF{subcondition}"))
+            self.if_stack.append(If_call_back(self.commands))
+        else:
+            exit(f"Chyba: Příkaz '{subcondition}' není podporován.")
+    
+    def goto_else(self):
+        self.commands.append(Command("GOTO1"))
+        command = Command(None)
+        self.commands.append(command)
+        self.goto_if_end()
+        self.if_stack.append(If_call_back(self.commands, command))
+
+    def goto_if_end(self):
+        self.if_stack.pop().set(self.commands, len(self.commands))
+
+    def goto_while(self,subcondition: str, first_command: Command):
+        if (any(op in subcondition for op in {"==", "!=", "<", ">", "<=", ">="})): 
+            self.commands.append(Command(f"GOTO1_IF{subcondition}"))
+            self.while_stack.append(first_command)
+            self.if_stack.append(If_call_back(self.commands))
+        else:
+            exit(f"Chyba: Příkaz '{subcondition}' není podporován.")
+
+    def goto_while_end(self):
+        while_start = self.while_stack.pop()
+        self.commands.append(Command("GOTO1"))
+        If_call_back(self.commands).set(self.commands, self.commands.index(while_start))
+        self.goto_if_end()
 
 
     def get_data(self,line):
