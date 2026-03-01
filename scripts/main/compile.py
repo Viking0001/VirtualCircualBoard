@@ -20,6 +20,8 @@ class Command:
     
     @staticmethod
     def create_blind_command():
+        if Command.saved_commands is not None:
+            return Command.saved_commands
         command = Command(None)
         Command.saved_commands = command
         return command
@@ -28,52 +30,57 @@ class Command:
         return self.text
 
 class Variable:
-    def __init__(self, name: str | None, RAM_position: int, pointer_level: int = 0) -> None:
-        self.pointer_level = pointer_level
+    def __init__(self, name: str | None, RAM_position: int) -> None:
         self.name = name
         self.RAM_position = RAM_position
 
-
-        
+class Array:
+    def __init__(self, name: str | None, RAM_position: int) -> None:
+        self.name = name
+        self.RAM_position = RAM_position
+        self.length = 0
 
 class Control_flow:
     x_length = 255
     list_if_commands = [] 
+
+    def name(self, commands: list[Command]) -> str:
+        index = commands.index(self.start_command)
+        return commands[index-1].text
+
+
+
     def __init__(self, commands: list[Command], command: Command | None = None) -> None:
         if command is None:
-            self.command = Command.create(None)
-            commands.append(self.command)
+            self.start_command = Command.create(None)
+            commands.append(self.start_command)
         else:
-            self.command = command
+            self.start_command = command
         self.list_if_commands.append(self)
         self.first = True
-        self.position = None
+        self.end_command = None
     
-    def set(self, commands: list[Command], position: int | None, add : int = 0 ) -> None:
-        if self.position is None:
-            self.position = position
-        if position is None:
-            position = self.position
-        
-        position += add
-        y = position // self.x_length
-        x = position % self.x_length
-        index = commands.index(self.command)
-        if (y == (index // self.x_length)):
-            self.command.text = str(x)
-        else:
+    def set(self, commands: list[Command], position: Command | None) -> None:
+        if self.end_command is None:
+            self.end_command = position
+
+        index_end = commands.index(self.end_command) if self.end_command in commands else len(commands)
+        index_start = commands.index(self.start_command) if self.start_command in commands else len(commands)
+
+        y = index_end // self.x_length
+        x = index_end % self.x_length
+        if (y != (index_start // self.x_length)):
             if self.first:
                 self.first = False
-                command = commands[index-1]
-                command = command.text.replace("1", "2")
-                commands.insert(index-1,Command.create(str(y)))
-                commands.insert(index-1,Command.create(command))
-            self.command.text = str(x+2)
-            
-            index = self.list_if_commands.index(self) + 1
-            while (index < len(self.list_if_commands)):
-                self.list_if_commands[index].set(commands, None, 2)
-                index += 1
+                old_command = commands[index_start-1]
+                new_text = old_command.text.replace("1", "2")
+                commands.insert(index_start-1,Command(str(y)))
+                commands.insert(index_start-1,Command(new_text))
+                for command in self.list_if_commands:
+                    command.set(commands, None)
+                return
+
+        self.start_command.text = str(x)
 
 
 class Ram:
@@ -120,7 +127,7 @@ class Ram:
             register.last_used = 0
 
         
-    def set_RAM_position(self, commands: list[Command] , variable: Variable | int) -> None:
+    def set_RAM_position(self, commands: list[Command] , variable: Variable | int, level: int = 0) -> None:
         if isinstance(variable, Variable):
             position = variable.RAM_position
         else:
@@ -130,6 +137,10 @@ class Ram:
             commands.append(Command.create("PTR="))
             commands.append(Command.create(str(position)))
             self.last_position = position
+
+        for _ in range(level):
+            commands.append(Command.create("PTR=RAM"))
+
 
     def reset_last_position(self):
         self.last_position = None
@@ -143,6 +154,8 @@ class Ram:
             return line, False
         elif line == "input()":
             return "INPUT", True
+        elif line.startswith("&") and self.is_variable(line[1:]):
+            return self.get_variable(line[1:]).RAM_position, False
         else:
             return None, False
 
@@ -184,8 +197,7 @@ class Function:
         c = Command.create(None)
         commands.append(c)
         control_flow = Control_flow(commands, c)
-        control_flow.set(commands, commands.index(self.first_command))
-
+        control_flow.set(commands, self.first_command)
         
         
 
@@ -257,8 +269,13 @@ class Registers:
         free_register = self.get_empty_register(without_register)
         commands.append(Command.create(free_register.name + "="))
         commands.append(Command.create(inte))
+        self.free_register(free_register)
         free_register.setNumber(inte)
-        free_register.variable = None
+        return free_register
+
+    def load_in_to_register_from_ram(self,commands: list[Command], without_register: list[Register] = None):
+        free_register = self.get_empty_register(without_register)
+        commands.append(Command.create(free_register.name + "=RAM"))
         return free_register
 
     def get_empty_register(self, without_register: list[Register] = None) -> Register:
@@ -270,6 +287,7 @@ class Registers:
                 return r
         r = self.last_used_register(without_register)
         r.setNumber(None)
+        self.free_register(r)
         return r
     
     def free_register(self, register: Register) -> None:
@@ -299,6 +317,18 @@ class Registers:
         elif (line.startswith("&") and self.ram.is_variable(line[1:])):
             src_var = self.ram.get_variable(line[1:])
             register = self.set_register(commands, src_var.RAM_position, without_register)
+
+        elif (line.startswith("*")):
+            level, ptr_var = self.get_level_and_variable(line)
+            if (self.ram.is_variable(line)):
+                self.ram.set_RAM_position(commands, ptr_var.RAM_position)
+                for i in range(level):
+                    commands.append(Command.create("PTR=RAM"))
+                register = self.load_in_to_register_from_ram(commands, without_register)
+                
+            else:
+                exit("Nepodporovany format")
+                
 
         elif (line.startswith("'") and line.endswith("'")):
             register = self.set_register(commands, letters[line[1:-1]], without_register)
@@ -394,7 +424,7 @@ class Processor:
 
     def process_command(self, line: str):
 
-        line = line.replace(" ", "")
+        line = self.remove_spaces_outside_quotes(line)
         operators = ["==", "!=", ">=", "<=", ">", "<"]
         negated = {
             "==": "!=0",
@@ -409,7 +439,16 @@ class Processor:
         if not line:
             return
 
-        if (line.startswith("if(") and line.endswith(")")):
+        if (line.startswith("pass")):
+            if "*" in line:
+                times = int(line.split("*")[1])
+                for _ in range(times):
+                    self.commands.append(Command.create("NOP"))
+            else:
+                self.commands.append(Command.create("NOP"))
+
+
+        elif (line.startswith("if(") and line.endswith(")")):
             line = line[3:-1].strip()
 
             for op in operators:
@@ -480,7 +519,7 @@ class Processor:
             self.commands.append(Command.create("GOTO1"))
             self.commands.append(Command.create(None))
             self.if_stack.append(Control_flow(self.commands, self.commands[-1]))
-            command =Command.create_blind_command()
+            command = Command.create_blind_command()
             self.functions[func_name] = Function(func_name, params, command, self.ram)
             
 
@@ -488,7 +527,7 @@ class Processor:
             
         elif (line.startswith("enddef")):
             self.commands.append(Command.create("RETURN"))
-            self.if_stack.pop().set(self.commands, len(self.commands))
+            self.if_stack.pop().set(self.commands, Command.create_blind_command())
             self.ram.reset_last_position()
             self.registers.free_all_registers()
                         
@@ -499,23 +538,55 @@ class Processor:
 
             if is_declaration:
                 line = line[3:].strip()
+            
 
-
-            name, value = map(str.strip, line.split("="))
+            name_value = [part.strip() for part in line.split("=")]
+            target_name = name_value[0]
 
             if is_declaration:
-                target_variable = self.ram.set_variable(name)
-            else:
-                target_variable = self.ram.get_variable(name)
+                target_variable = self.ram.set_variable(target_name)
 
-            # --- vyhodnocení hodnoty ---
-            self.ram.seve_variables(self.commands, self.registers, target_variable, value)
+
+            if (len(name_value) == 1):
+                return
+
+            value = name_value[1]
+
+            if target_name.startswith("*"):
+                level, ptr_var = self.get_level_and_variable(target_name)
+                data, is_same_row = self.ram.parse_data(value)
+                if data is not None:
+                    self.ram.set_RAM_position(self.commands, ptr_var.RAM_position, level)
+                    if is_same_row:
+                        self.commands.append(Command.create(f"RAM={data}"))
+                    else:
+                        self.commands.append(Command.create("RAM="))
+                        self.commands.append(Command.create(data))
+                else:
+                    register = self.registers.get_data_to_register(self.commands, self.letters, value)
+                    self.ram.set_RAM_position(self.commands, ptr_var.RAM_position, level)
+                    self.commands.append(Command.create(f"RAM={register.name}"))
+                return
+
+            else:
+                target_variable = self.ram.get_variable(target_name)
+
+            
+
+            if (value.startswith("&") and self.ram.is_variable(value[1:])):
+                self.ram.set_RAM_position(self.commands, target_variable)
+                src_var = self.ram.get_variable(value[1:])
+                self.commands.append(Command.create("RAM="))
+                self.commands.append(Command.create(str(src_var.RAM_position)))
+                
+            else:
+                self.ram.seve_variables(self.commands, self.registers, target_variable, value)
 
 
         elif line.startswith("print(") and line.endswith(")"):
             line = line[6:-1].strip()
 
-            data, is_same_raw = self.parse_data(line)
+            data, is_same_raw = self.ram.parse_data(line)
             if (data is not None):
                 if (is_same_raw):
                     self.commands.append(Command.create(f"DRAW_{data}"))
@@ -559,7 +630,7 @@ class Processor:
         self.if_stack.append(Control_flow(self.commands, command))
 
     def goto_if_end(self):
-        self.if_stack.pop().set(self.commands, len(self.commands))
+        self.if_stack.pop().set(self.commands, Command.create_blind_command())
 
     def goto_while(self,subcondition: str, first_command: Command):
         if (any(op in subcondition for op in {"==", "!=", "<", ">", "<=", ">="})): 
@@ -572,7 +643,7 @@ class Processor:
     def goto_while_end(self):
         while_start = self.while_stack.pop()
         self.commands.append(Command.create("GOTO1"))
-        Control_flow(self.commands).set(self.commands, self.commands.index(while_start))
+        Control_flow(self.commands).set(self.commands, while_start)
         self.goto_if_end()
 
 
@@ -582,15 +653,33 @@ class Processor:
                 return self.functions[func]
         return None
 
-    def parse_data(self,line):
-        if (line.startswith("'") and line.endswith("'")):
-            return self.letters[line[1:-1]], False
-        elif line.isdigit():
-            return line, False
-        elif line == "input()":
-            return "INPUT", True
-        else:
-            return None, False
+
+    def remove_spaces_outside_quotes(self, text: str) -> str:
+        result = []
+        in_single = False
+        in_double = False
+
+        for char in text:
+            if char == "'" and not in_double:
+                in_single = not in_single
+                result.append(char)
+            elif char == '"' and not in_single:
+                in_double = not in_double
+                result.append(char)
+            elif char == " " and not in_single and not in_double:
+                continue  # přeskočíme mezeru mimo uvozovky
+            else:
+                result.append(char)
+
+        return "".join(result)
+
+    def get_level_and_variable(self, line: str) -> tuple[int, Variable]:
+        level = 0
+        while line.startswith("*"):
+            level += 1
+            line = line[1:]
+        return level, self.ram.get_variable(line)
+
 
 
 if __name__ == "__main__":
@@ -619,13 +708,18 @@ if __name__ == "__main__":
                     continue
                 processor.process_command(line)  
             processor.commands.append(Command("END"))
+            if (len(processor.if_stack) > 0):
+                print("Chyba: Není uzavřený if.")
+                exit(1)
+            if (len(processor.while_stack) > 0):
+                print("Chyba: Není uzavřený while.")
+                exit(1)
     else:
         print(f"Chyba: {my_code_path} neexistuje.")
         exit(1)
     
     if processor.commands:
         print("Generované assemblery:")
-        print([value.text for value in processor.commands])
         compile_assembly.main([value.text for value in processor.commands])
     else:
         print("Žádné příkazy k sestavení.")

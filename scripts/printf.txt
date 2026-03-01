@@ -1,4 +1,4 @@
-def fprint(number)
+def printf(number)
     var index = 100
     var draw = 0
     while (index != 0)
@@ -17,5 +17,10 @@ def fprint(number)
         if (index == 100)
             index = 10
         endif
+    endwhile
+enddef
+def device(number, divider)
+    while (number >= divider)
+        number = number - divider
     endwhile
 enddef

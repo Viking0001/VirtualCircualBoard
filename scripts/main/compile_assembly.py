@@ -1,6 +1,8 @@
 import numpy as np
 import os
 import sys
+import subprocess
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from blueprint_utils import create_simple_blueprint, ComponentType
 
@@ -128,12 +130,13 @@ INSTRUCTION_MAP = {
     "GOTO2":        94,
     "RAM=INPUT":    95,
     "DRAW_INPUT":   96,
-    "NOP":          97
+    "NOP":          97,
+    "CALL2":        98
 }
 
 INSTRUCTIONS_WITH_OPERAND = {    
     instr for instr in INSTRUCTION_MAP
-    if instr.startswith("GOTO") or instr in {"CALL1", "PTR=", "A=", "B=", "C=", "RAM=", "DRAW", "X=", "Y="}
+    if instr.startswith("GOTO") or instr in {"CALL1", "CALL2", "PTR=", "A=", "B=", "C=", "RAM=", "DRAW", "X=", "Y="}
 }
 
 def bits_to_components(rows_list, hspace=3, vspace=2):
@@ -198,13 +201,22 @@ def assemble_tokens(tokens):
     # --- Pass 2: Skutečná sestavení ---
     binary_rows = []
     i = 0
+    nop_count = 0
     while i < len(tokens):
         token = str(tokens[i]).upper()
         
         if token in INSTRUCTION_MAP:
             instr = token
             opcode = INSTRUCTION_MAP[instr]
-            print(f"{i}: {instr} ({opcode})", end="")
+            if (instr == "NOP"):
+                nop_count += 1
+            else:
+                if (nop_count > 0):
+                    print(f"{i- nop_count} - {i-1}: NOP (97)")
+                    nop_count = 0
+
+                print(f"{i}: {instr} ({opcode})", end="")
+
             i += 1
             
             # 8-bit opcode řádek
@@ -230,7 +242,8 @@ def assemble_tokens(tokens):
                 print(f" + operand={operand}")
                 binary_rows.append(format(operand & 0xFF, "08b"))
             else:
-                print()
+                if (nop_count == 0):
+                    print()
         else:
             i += 1
             
@@ -274,8 +287,7 @@ def main(argv):
                     tags="rom,assembler,8bit"
                 )
                 
-                print("\nVygenerovaný blueprint (VCB+):")
-                print(blueprint)
+                subprocess.run(["xclip", "-selection", "clipboard"], input=blueprint, text=True)
                 print(f"\nPočet vygenerovaných 8-bit řádků: {len(bin_rows)}")
                 print(f"Rozměry: {components.shape[1]}x{components.shape[0]}")
                 

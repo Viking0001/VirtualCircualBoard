@@ -1,2 +1,7 @@
-var a = 1
-var b = &a
+def return(a)
+    *a = 10
+enddef
+
+var x = 0
+return(&x)
+print(x)
