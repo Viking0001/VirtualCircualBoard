@@ -1,0 +1,21 @@
+def fprint(number)
+    var index = 100
+    var draw = 0
+    while (index != 0)
+        draw = 0
+        while (number >= index)
+            draw = draw + 1
+            number = number - index
+        endwhile
+        print(draw + 8)
+        if (index == 1)
+            index = 0
+        endif
+        if (index == 10)
+            index = 1
+        endif
+        if (index == 100)
+            index = 10
+        endif
+    endwhile
+enddef
