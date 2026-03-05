@@ -19,8 +19,3 @@ def printf(number)
         endif
     endwhile
 enddef
-def device(number, divider)
-    while (number >= divider)
-        number = number - divider
-    endwhile
-enddef

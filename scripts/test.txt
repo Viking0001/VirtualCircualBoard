@@ -47,33 +47,31 @@ def multiply(a,b,result)
 enddef
 
 def dravLine(x1,y1,x2,y2)
-    var gha = y1
-
     var dx = x2 - x1
     if (dx < 0)
         dx = 0 - dx
     endif
-
-
     var dy = y2 - y1
     if (dy < 0)
         dy = 0 - dy
     endif
 
     var a = 0
-    devide(dy,dx,&a)
-
-    var b = 0
-    b = y1 - b
-
-    print(b)
+    devide(dx,dy,&a)
+    printf(a)
 
     while (dx > 0)
         drawPixel(dx,y1)
         dx = dx - 1
     endwhile
-    
 enddef
 
 
-dravLine(1,10,10,12)
+//dravLine(0,0,10,10)
+
+var r = 0
+
+multiply(2,3, &r)
+
+printf(r)
+

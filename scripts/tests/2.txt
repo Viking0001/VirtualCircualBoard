@@ -1,0 +1,5 @@
+def test()
+    print('T')
+enddef
+pass*250
+test()

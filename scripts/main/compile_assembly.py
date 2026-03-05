@@ -131,7 +131,8 @@ INSTRUCTION_MAP = {
     "RAM=INPUT":    95,
     "DRAW_INPUT":   96,
     "NOP":          97,
-    "CALL2":        98
+    "CALL2":        98,
+    "DRAW_RAM":     99
 }
 
 INSTRUCTIONS_WITH_OPERAND = {    
@@ -139,38 +140,42 @@ INSTRUCTIONS_WITH_OPERAND = {
     if instr.startswith("GOTO") or instr in {"CALL1", "CALL2", "PTR=", "A=", "B=", "C=", "RAM=", "DRAW", "X=", "Y="}
 }
 
-def bits_to_components(rows_list, hspace=3, vspace=2):
+def bits_to_components(rows_list, hspace=3, vspace=2, max_rows_per_col=512, col_spacing=85):
     """
-    Převede seznam 8-bitových binárních řetězců na 2D pole komponent.
-    Každý bit je 1x1 blok.
-    1 = LATCH_ON, 0 = LATCH_OFF
-    Mezery: hspace (3), vspace (3).
+    Convert a list of 8-bit binary strings to a 2D array of components.
+    If the number of rows exceeds max_rows_per_col, the output is split into multiple columns
+    with col_spacing empty cells between them.
     """
     if not rows_list:
         return np.array([])
 
-    num_rows = len(rows_list)
-    bit_width = 8
+    # Split rows into chunks for columns
+    chunks = [rows_list[i:i + max_rows_per_col] for i in range(0, len(rows_list), max_rows_per_col)]
+    num_chunks = len(chunks)
 
-    # Šířka: 8 bitů * 1 + (7 mezer * hspace)
-    final_width = bit_width * 1 + (bit_width - 1) * hspace
-    # Výška: num_rows * 1 (blok) + (num_rows - 1) * vspace
-    final_height = num_rows * 1 + (num_rows - 1) * vspace
-    
-    components = np.full((final_height, final_width), ComponentType.NONE, dtype=object)
-    
-    for r_idx, bits in enumerate(rows_list):
-        y_base = r_idx * (1 + vspace)
-        
-        for b_idx, bit in enumerate(bits):
-            x_base = b_idx * (1 + hspace)
-            
-            block_type = ComponentType.WRITE if bit == '1' else ComponentType.TC_YELLOW_C
-            
-            if y_base < final_height and x_base < final_width:
-                components[y_base, x_base] = block_type
-                        
-    return components
+    bit_width = 8
+    col_width = bit_width * 1 + (bit_width - 1) * hspace
+
+    # Determine total dimensions
+    total_width = num_chunks * col_width + (num_chunks - 1) * col_spacing
+    total_height = max(len(chunk) * 1 + (len(chunk) - 1) * vspace for chunk in chunks)
+
+    components = np.full((total_height, total_width), ComponentType.NONE, dtype=object)
+
+    def fill_column(chunk, x_offset):
+        for r_idx, bits in enumerate(chunk):
+            y_base = r_idx * (1 + vspace)
+            for b_idx, bit in enumerate(bits):
+                x_base = x_offset + b_idx * (1 + hspace)
+                block_type = ComponentType.WRITE if bit == '1' else ComponentType.TC_YELLOW_C
+                if y_base < total_height and x_base < total_width:
+                    components[y_base, x_base] = block_type
+
+    for idx, chunk in enumerate(chunks):
+        x_offset = idx * (col_width + col_spacing)
+        fill_column(chunk, x_offset)
+
+    return components                   
 
 def assemble_tokens(tokens):
     """
@@ -245,7 +250,7 @@ def assemble_tokens(tokens):
                 if (nop_count == 0):
                     print()
         else:
-            i += 1
+            exit(f"\n---Error: Neznámá instrukce: {token}---\n")
             
     return binary_rows
 
